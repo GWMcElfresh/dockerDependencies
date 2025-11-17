@@ -36,7 +36,8 @@ jobs:
         run: |
           # Use current month as base tag
           BASE_TAG=$(date +%Y-%m)
-          BASE_IMAGE="ghcr.io/${{ github.repository }}/base-deps:${BASE_TAG}"
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          BASE_IMAGE="ghcr.io/${REPO_LOWER}/base-deps:${BASE_TAG}"
           
           echo "base-tag=${BASE_TAG}" >> $GITHUB_OUTPUT
           echo "base-image=${BASE_IMAGE}" >> $GITHUB_OUTPUT
@@ -79,7 +80,8 @@ jobs:
       - name: Tag as latest
         if: steps.check-base.outputs.exists == 'false' || inputs.force-rebuild
         run: |
-          LATEST_IMAGE="ghcr.io/${{ github.repository }}/base-deps:latest"
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          LATEST_IMAGE="ghcr.io/${REPO_LOWER}/base-deps:latest"
           docker tag "${{ steps.base-tag.outputs.base-image }}" "${LATEST_IMAGE}"
           docker push "${LATEST_IMAGE}"
           echo "✅ Also tagged as: ${LATEST_IMAGE}"

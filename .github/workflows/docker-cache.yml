@@ -69,7 +69,8 @@ jobs:
         run: |
           # Try to pull current month's base image
           BASE_TAG=$(date +"${{ inputs.time-bucket-format }}")
-          BASE_IMAGE="ghcr.io/${{ github.repository }}/base-deps:${BASE_TAG}"
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          BASE_IMAGE="ghcr.io/${REPO_LOWER}/base-deps:${BASE_TAG}"
           
           echo "base-tag=${BASE_TAG}" >> $GITHUB_OUTPUT
           echo "base-image=${BASE_IMAGE}" >> $GITHUB_OUTPUT
@@ -80,7 +81,7 @@ jobs:
           else
             # Fallback to latest if current month doesn't exist
             echo "⚠️  Current month's base not found, trying latest..."
-            BASE_IMAGE="ghcr.io/${{ github.repository }}/base-deps:latest"
+            BASE_IMAGE="ghcr.io/${REPO_LOWER}/base-deps:latest"
             
             if docker pull "${BASE_IMAGE}" 2>/dev/null; then
               echo "exists=true" >> $GITHUB_OUTPUT
@@ -144,7 +145,8 @@ jobs:
       - name: Pull existing dependency image if available
         id: pull-deps
         run: |
-          DEPS_IMAGE="ghcr.io/${{ github.repository }}/deps:${{ steps.cache-key.outputs.cache-key }}"
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          DEPS_IMAGE="ghcr.io/${REPO_LOWER}/deps:${{ steps.cache-key.outputs.cache-key }}"
           echo "deps-image=${DEPS_IMAGE}" >> $GITHUB_OUTPUT
           
           if docker pull "${DEPS_IMAGE}" 2>/dev/null; then
