@@ -1,0 +1,49 @@
+name: Example - Using Reusable Docker Cache Workflow
+
+# This example shows both workflows for optimal performance:
+# 1. Monthly base image builder (slow, runs once per month)
+# 2. Fast incremental builds (fast, runs on every PR/push)
+
+on:
+  # Monthly base image rebuild
+  schedule:
+    - cron: '0 2 1 * *'  # 1st of every month at 2 AM UTC
+  
+  # Fast builds on every PR/push
+  pull_request:
+  push:
+    branches:
+      - main
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      rebuild-base:
+        description: 'Force rebuild base image'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # Monthly base image build (1-2 hours, once per month)
+  build-monthly-base:
+    if: github.event.schedule || inputs.rebuild-base
+    uses: GWMcElfresh/dockerDependencies/.github/workflows/build-base-image.yml@main
+    with:
+      force-rebuild: ${{ inputs.rebuild-base || false }}
+  
+  # Fast incremental build (seconds to minutes, every PR/push)
+  build-with-cache:
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.rebuild-base)
+    uses: GWMcElfresh/dockerDependencies/.github/workflows/docker-cache.yml@main
+    with:
+      test-command: 'pytest -v'
+      use-base-image: true  # Use monthly base for fast builds
+      
+      # Optional: Override other defaults as needed
+      # dockerfile-path: '.'
+      # context: '.'
+      # dependency-files: 'custom-deps.txt another-file.lock'
+      # time-bucket-format: '%Y-%m'  # Monthly (default)
+      # runtime-image-name: 'app:test'
+      # runner: 'ubuntu-latest'

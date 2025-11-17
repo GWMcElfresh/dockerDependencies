@@ -1,0 +1,85 @@
+name: Build Base Dependency Image (Monthly)
+
+on:
+  schedule:
+    # Run on the 1st of every month at 2 AM UTC
+    - cron: '0 2 1 * *'
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      force-rebuild:
+        description: 'Force rebuild even if base exists'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build-base:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Calculate base image tag
+        id: base-tag
+        run: |
+          # Use current month as base tag
+          BASE_TAG=$(date +%Y-%m)
+          BASE_IMAGE="ghcr.io/${{ github.repository }}/base-deps:${BASE_TAG}"
+          
+          echo "base-tag=${BASE_TAG}" >> $GITHUB_OUTPUT
+          echo "base-image=${BASE_IMAGE}" >> $GITHUB_OUTPUT
+          echo "Base image tag: ${BASE_TAG}"
+          echo "Base image: ${BASE_IMAGE}"
+      
+      - name: Check if base image exists
+        id: check-base
+        run: |
+          BASE_IMAGE="${{ steps.base-tag.outputs.base-image }}"
+          
+          if docker pull "${BASE_IMAGE}" 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Base image already exists: ${BASE_IMAGE}"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Base image not found: ${BASE_IMAGE}"
+          fi
+      
+      - name: Build base dependency image
+        if: steps.check-base.outputs.exists == 'false' || inputs.force-rebuild
+        run: |
+          echo "🔨 Building base dependency image from scratch..."
+          echo "⚠️  This may take 1-2 hours for large dependency sets"
+          
+          docker build \
+            --target deps \
+            --file ./Dockerfile \
+            -t "${{ steps.base-tag.outputs.base-image }}" \
+            --no-cache \
+            .
+      
+      - name: Push base image to GHCR
+        if: steps.check-base.outputs.exists == 'false' || inputs.force-rebuild
+        run: |
+          echo "⬆️  Pushing base dependency image to GHCR..."
+          docker push "${{ steps.base-tag.outputs.base-image }}"
+          echo "✅ Base image published: ${{ steps.base-tag.outputs.base-image }}"
+      
+      - name: Tag as latest
+        if: steps.check-base.outputs.exists == 'false' || inputs.force-rebuild
+        run: |
+          LATEST_IMAGE="ghcr.io/${{ github.repository }}/base-deps:latest"
+          docker tag "${{ steps.base-tag.outputs.base-image }}" "${LATEST_IMAGE}"
+          docker push "${LATEST_IMAGE}"
+          echo "✅ Also tagged as: ${LATEST_IMAGE}"

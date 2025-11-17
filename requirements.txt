@@ -1,0 +1,13 @@
+# Test dependencies for validating the Docker caching workflows
+# This file is used to test the two-tier caching system
+
+# Core dependencies (always installed)
+requests==2.31.0
+pyyaml==6.0.1
+
+# Toggled package - added on odd weeks, removed on even weeks
+# This forces cache invalidation to test incremental builds
+# Week calculation: date +%V gives ISO week number
+# Uncomment the line below on odd weeks (1, 3, 5, etc.)
+# Comment it out on even weeks (2, 4, 6, etc.)
+# python-dateutil==2.8.2

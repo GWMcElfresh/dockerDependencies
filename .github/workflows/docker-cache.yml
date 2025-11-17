@@ -1,0 +1,200 @@
+name: Docker Build with Dependency Caching (Fast)
+
+on:
+  workflow_call:
+    inputs:
+      dockerfile-path:
+        description: 'Path to the Dockerfile'
+        required: false
+        type: string
+        default: '.'
+      context:
+        description: 'Build context directory'
+        required: false
+        type: string
+        default: '.'
+      test-command:
+        description: 'Command to run for testing'
+        required: false
+        type: string
+        default: 'echo "No tests specified"'
+      dependency-files:
+        description: 'Additional dependency files to include in hash (space-separated)'
+        required: false
+        type: string
+        default: ''
+      time-bucket-format:
+        description: 'Date format for time bucket (default: monthly YYYY-MM)'
+        required: false
+        type: string
+        default: '%Y-%m'
+      runtime-image-name:
+        description: 'Name for the final runtime image'
+        required: false
+        type: string
+        default: 'app:test'
+      runner:
+        description: 'GitHub runner to use'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      use-base-image:
+        description: 'Use monthly base image as foundation (faster builds)'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build-and-test:
+    runs-on: ${{ inputs.runner }}
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Pull base dependency image
+        id: pull-base
+        if: inputs.use-base-image
+        run: |
+          # Try to pull current month's base image
+          BASE_TAG=$(date +"${{ inputs.time-bucket-format }}")
+          BASE_IMAGE="ghcr.io/${{ github.repository }}/base-deps:${BASE_TAG}"
+          
+          echo "base-tag=${BASE_TAG}" >> $GITHUB_OUTPUT
+          echo "base-image=${BASE_IMAGE}" >> $GITHUB_OUTPUT
+          
+          if docker pull "${BASE_IMAGE}" 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Base image found: ${BASE_IMAGE}"
+          else
+            # Fallback to latest if current month doesn't exist
+            echo "⚠️  Current month's base not found, trying latest..."
+            BASE_IMAGE="ghcr.io/${{ github.repository }}/base-deps:latest"
+            
+            if docker pull "${BASE_IMAGE}" 2>/dev/null; then
+              echo "exists=true" >> $GITHUB_OUTPUT
+              echo "base-image=${BASE_IMAGE}" >> $GITHUB_OUTPUT
+              echo "✅ Using latest base image: ${BASE_IMAGE}"
+            else
+              echo "exists=false" >> $GITHUB_OUTPUT
+              echo "❌ No base image found, will build from scratch"
+            fi
+          fi
+      
+      - name: Calculate dependency hash and time bucket
+        id: cache-key
+        run: |
+          # Calculate SHA256 hash of all dependency files
+          DEPS_SHA=""
+          
+          # Hash deps/ directory if it exists
+          if [ -d "deps" ]; then
+            DEPS_HASH=$(find deps -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
+            DEPS_SHA="${DEPS_SHA}${DEPS_HASH}"
+          fi
+          
+          # Hash common dependency files
+          DEP_FILES="apt.txt requirements.txt pyproject.toml renv.lock DESCRIPTION NAMESPACE package.json package-lock.json Gemfile Gemfile.lock go.mod go.sum Cargo.toml Cargo.lock"
+          
+          # Add custom dependency files from input
+          if [ -n "${{ inputs.dependency-files }}" ]; then
+            DEP_FILES="${DEP_FILES} ${{ inputs.dependency-files }}"
+          fi
+          
+          for file in $DEP_FILES; do
+            if [ -f "$file" ]; then
+              FILE_HASH=$(sha256sum "$file" | cut -d' ' -f1)
+              DEPS_SHA="${DEPS_SHA}${FILE_HASH}"
+            fi
+          done
+          
+          # If no dependency files found, use a default hash
+          if [ -z "$DEPS_SHA" ]; then
+            DEPS_SHA="no-deps"
+          else
+            # Hash the concatenated hashes for final dependency hash
+            DEPS_SHA=$(echo -n "$DEPS_SHA" | sha256sum | cut -d' ' -f1)
+          fi
+          
+          # Calculate time bucket with custom format
+          TIME_BUCKET=$(date +"${{ inputs.time-bucket-format }}")
+          
+          # Combine into cache key
+          CACHE_KEY="${DEPS_SHA}-${TIME_BUCKET}"
+          
+          echo "deps-sha=${DEPS_SHA}" >> $GITHUB_OUTPUT
+          echo "time-bucket=${TIME_BUCKET}" >> $GITHUB_OUTPUT
+          echo "cache-key=${CACHE_KEY}" >> $GITHUB_OUTPUT
+          
+          echo "Dependency hash: ${DEPS_SHA}"
+          echo "Time bucket: ${TIME_BUCKET}"
+          echo "Cache key: ${CACHE_KEY}"
+      
+      - name: Pull existing dependency image if available
+        id: pull-deps
+        run: |
+          DEPS_IMAGE="ghcr.io/${{ github.repository }}/deps:${{ steps.cache-key.outputs.cache-key }}"
+          echo "deps-image=${DEPS_IMAGE}" >> $GITHUB_OUTPUT
+          
+          if docker pull "${DEPS_IMAGE}" 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Dependency image found in cache: ${DEPS_IMAGE}"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Dependency image not found in cache: ${DEPS_IMAGE}"
+          fi
+      
+      - name: Build dependency image
+        if: steps.pull-deps.outputs.exists == 'false'
+        run: |
+          echo "🔨 Building dependency image..."
+          
+          # If we have a base image, use it to speed up the build
+          if [ "${{ inputs.use-base-image }}" == "true" ] && [ "${{ steps.pull-base.outputs.exists }}" == "true" ]; then
+            echo "📦 Using base image: ${{ steps.pull-base.outputs.base-image }}"
+            docker build \
+              --target deps \
+              --file "${{ inputs.dockerfile-path }}/Dockerfile" \
+              --build-arg BASE_IMAGE=${{ steps.pull-base.outputs.base-image }} \
+              --cache-from ${{ steps.pull-base.outputs.base-image }} \
+              -t "${{ steps.pull-deps.outputs.deps-image }}" \
+              "${{ inputs.context }}"
+          else
+            echo "🏗️  Building from scratch (no base image)"
+            docker build \
+              --target deps \
+              --file "${{ inputs.dockerfile-path }}/Dockerfile" \
+              -t "${{ steps.pull-deps.outputs.deps-image }}" \
+              "${{ inputs.context }}"
+          fi
+      
+      - name: Push dependency image to GHCR
+        if: steps.pull-deps.outputs.exists == 'false'
+        run: |
+          echo "⬆️ Pushing dependency image to GHCR..."
+          docker push "${{ steps.pull-deps.outputs.deps-image }}"
+      
+      - name: Build runtime image
+        run: |
+          echo "🔨 Building runtime image..."
+          docker build \
+            --build-arg DEPS_TAG=${{ steps.cache-key.outputs.cache-key }} \
+            --file "${{ inputs.dockerfile-path }}/Dockerfile" \
+            -t "${{ inputs.runtime-image-name }}" \
+            "${{ inputs.context }}"
+      
+      - name: Run tests
+        run: |
+          echo "🧪 Running tests..."
+          docker run --rm "${{ inputs.runtime-image-name }}" ${{ inputs.test-command }}
