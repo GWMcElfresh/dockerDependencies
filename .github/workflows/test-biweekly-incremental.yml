@@ -82,7 +82,7 @@ jobs:
     needs: toggle-package
     uses: ./.github/workflows/docker-cache.yml
     with:
-      test-command: 'python3 -c "import requests; import yaml; print(\"✅ Test passed\")"'
+      test-command: 'sh -c "python3 -c \"import requests; import yaml; print(\\\"✅ Python packages work\\\")\" && echo \\\"✅ Test passed\\\""'
       use-base-image: true
   
   # Report results
