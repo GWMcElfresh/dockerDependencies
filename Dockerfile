@@ -142,10 +142,20 @@ RUN apt-get update && apt-get install -y \
 COPY --from=deps /usr/local /usr/local
 COPY --from=deps /usr/bin /usr/bin
 COPY --from=deps /usr/lib /usr/lib
-COPY --from=deps /root/.cargo /root/.cargo
+
+# Conditionally copy language-specific home directories if they exist
+# Go modules cache: /root/go, Rust toolchain: /root/.cargo
+RUN --mount=type=bind,from=deps,source=/root,target=/tmp/deps-root \
+    if [ -d /tmp/deps-root/go ]; then \
+        cp -r /tmp/deps-root/go /root/; \
+    fi && \
+    if [ -d /tmp/deps-root/.cargo ]; then \
+        cp -r /tmp/deps-root/.cargo /root/; \
+    fi
 
 # Set up environment paths
-ENV PATH="/usr/local/go/bin:/root/.cargo/bin:${PATH}"
+ENV PATH="/usr/local/go/bin:/root/.cargo/bin:${PATH}" \
+    GOPATH="/root/go"
 
 # Set working directory
 WORKDIR /app
