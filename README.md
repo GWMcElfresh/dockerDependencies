@@ -68,7 +68,49 @@ jobs:
     with:
       test-command: 'pytest -v'
       use-base-image: true  # Use monthly base for fast builds
+      r-version: '4.4.0'    # Specify R version
+      bioc-version: '3.20'  # Specify Bioconductor version
 ```
+
+## Language Version Specification
+
+You can specify language versions in three ways:
+
+### 1. Workflow Inputs (Highest Priority)
+```yaml
+uses: GWMcElfresh/dockerDependencies/.github/workflows/docker-cache.yml@main
+with:
+  r-version: '4.4.0'
+  bioc-version: '3.20'
+  python-version: '3.11'
+  node-version: '20'
+  ruby-version: '3.2'
+  go-version: '1.21.5'
+  rust-version: 'stable'
+```
+
+### 2. Version Files
+Create version specification files in your repository:
+
+- `.tool-versions` - Multi-language (asdf-style)
+- `.python-version` - Python only
+- `.ruby-version` - Ruby only
+- `.node-version` - Node.js only
+- `.r-version` - R only
+- `.bioc_version` - Bioconductor version
+
+**Example `.tool-versions`:**
+```
+python 3.11
+node 20
+ruby 3.2
+r 4.4.0
+golang 1.21.5
+rust stable
+```
+
+### 3. Default Versions
+If no version is specified, the system uses predefined defaults or system-provided versions.
 
 ## How It Works
 
@@ -106,6 +148,13 @@ jobs:
 | `runtime-image-name` | Name for the final runtime image | No | `app:test` |
 | `runner` | GitHub runner to use | No | `ubuntu-latest` |
 | `use-base-image` | Use monthly base image as foundation | No | `true` |
+| `r-version` | R version to install (e.g., `4.4.0`) | No | Latest |
+| `bioc-version` | Bioconductor version (e.g., `3.20`) | No | Auto-detect |
+| `python-version` | Python version (e.g., `3.11`) | No | System default |
+| `node-version` | Node.js version (e.g., `20`, `18`) | No | `20` |
+| `go-version` | Go version (e.g., `1.21.5`) | No | `1.21.5` |
+| `ruby-version` | Ruby version (e.g., `3.2`) | No | System default |
+| `rust-version` | Rust version/channel (e.g., `stable`, `1.75.0`) | No | `stable` |
 
 ### build-base-image.yml (Monthly Base)
 
@@ -184,7 +233,7 @@ jobs:
 1. **Dependency Hashing**: Calculates SHA256 hash of all dependency files including:
    - `deps/` directory
    - Common files: `requirements.txt`, `pyproject.toml`, `package.json`, `Gemfile`, `go.mod`, `Cargo.toml`, etc.
-   - R packages: `renv.lock`, `DESCRIPTION`, `NAMESPACE`
+   - R packages: `renv.lock`, `DESCRIPTION`, `NAMESPACE`, `.bioc_version`
    - Custom files specified via `dependency-files` input
 
 2. **Time-Based Key**: Combines dependency hash with current time bucket (default: `YYYY-MM`)
@@ -251,7 +300,7 @@ The `ARG BASE_IMAGE` allows the workflow to optionally use a pre-built base imag
 The workflow automatically detects and hashes these files:
 
 - **Python**: `requirements.txt`, `pyproject.toml`
-- **R**: `renv.lock`, `DESCRIPTION`, `NAMESPACE`
+- **R**: `renv.lock`, `DESCRIPTION`, `NAMESPACE`, `.bioc_version`
 - **Node.js**: `package.json`, `package-lock.json`
 - **Ruby**: `Gemfile`, `Gemfile.lock`
 - **Go**: `go.mod`, `go.sum`

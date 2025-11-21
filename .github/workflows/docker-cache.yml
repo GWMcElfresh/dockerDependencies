@@ -43,6 +43,41 @@ on:
         required: false
         type: boolean
         default: true
+      r-version:
+        description: 'R version to install (e.g., 4.4.0, 4.3.2). If not specified, uses latest available.'
+        required: false
+        type: string
+        default: ''
+      bioc-version:
+        description: 'Bioconductor version (e.g., 3.20, 3.19). Overrides .bioc_version file if specified.'
+        required: false
+        type: string
+        default: ''
+      python-version:
+        description: 'Python version to install (e.g., 3.11, 3.12). If not specified, uses system default.'
+        required: false
+        type: string
+        default: ''
+      node-version:
+        description: 'Node.js version to install (e.g., 20, 18, 20.x). If not specified, uses latest LTS.'
+        required: false
+        type: string
+        default: '20'
+      go-version:
+        description: 'Go version to install (e.g., 1.21.5, 1.22.0). If not specified, uses default.'
+        required: false
+        type: string
+        default: '1.21.5'
+      ruby-version:
+        description: 'Ruby version to install (e.g., 3.2, 3.3). If not specified, uses system default.'
+        required: false
+        type: string
+        default: ''
+      rust-version:
+        description: 'Rust version/channel to install (e.g., stable, 1.75.0). If not specified, uses stable.'
+        required: false
+        type: string
+        default: 'stable'
 
 jobs:
   build-and-test:
@@ -106,7 +141,7 @@ jobs:
           fi
           
           # Hash common dependency files
-          DEP_FILES="apt.txt requirements.txt pyproject.toml renv.lock DESCRIPTION NAMESPACE package.json package-lock.json Gemfile Gemfile.lock go.mod go.sum Cargo.toml Cargo.lock"
+          DEP_FILES="apt.txt requirements.txt pyproject.toml renv.lock DESCRIPTION NAMESPACE .bioc_version .tool-versions .python-version .ruby-version .node-version .r-version package.json package-lock.json Gemfile Gemfile.lock go.mod go.sum Cargo.toml Cargo.lock"
           
           # Add custom dependency files from input
           if [ -n "${{ inputs.dependency-files }}" ]; then
@@ -162,6 +197,30 @@ jobs:
         run: |
           echo "🔨 Building dependency image..."
           
+          # Prepare build args for language versions
+          BUILD_ARGS=""
+          if [ -n "${{ inputs.r-version }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg R_VERSION=${{ inputs.r-version }}"
+          fi
+          if [ -n "${{ inputs.bioc-version }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg BIOC_VERSION=${{ inputs.bioc-version }}"
+          fi
+          if [ -n "${{ inputs.python-version }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg PYTHON_VERSION=${{ inputs.python-version }}"
+          fi
+          if [ -n "${{ inputs.node-version }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg NODE_VERSION=${{ inputs.node-version }}"
+          fi
+          if [ -n "${{ inputs.go-version }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg GO_VERSION=${{ inputs.go-version }}"
+          fi
+          if [ -n "${{ inputs.ruby-version }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg RUBY_VERSION=${{ inputs.ruby-version }}"
+          fi
+          if [ -n "${{ inputs.rust-version }}" ]; then
+            BUILD_ARGS="$BUILD_ARGS --build-arg RUST_VERSION=${{ inputs.rust-version }}"
+          fi
+          
           # If we have a base image, use it to speed up the build
           if [ "${{ inputs.use-base-image }}" == "true" ] && [ "${{ steps.pull-base.outputs.exists }}" == "true" ]; then
             echo "📦 Using base image: ${{ steps.pull-base.outputs.base-image }}"
@@ -169,6 +228,7 @@ jobs:
               --target deps \
               --file "${{ inputs.dockerfile-path }}/Dockerfile" \
               --build-arg BASE_IMAGE=${{ steps.pull-base.outputs.base-image }} \
+              $BUILD_ARGS \
               --cache-from ${{ steps.pull-base.outputs.base-image }} \
               -t "${{ steps.pull-deps.outputs.deps-image }}" \
               "${{ inputs.context }}"
@@ -177,6 +237,7 @@ jobs:
             docker build \
               --target deps \
               --file "${{ inputs.dockerfile-path }}/Dockerfile" \
+              $BUILD_ARGS \
               -t "${{ steps.pull-deps.outputs.deps-image }}" \
               "${{ inputs.context }}"
           fi

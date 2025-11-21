@@ -40,6 +40,15 @@ jobs:
       test-command: 'pytest -v'
       use-base-image: true  # Use monthly base for fast builds
       
+      # Language versions (optional - will use .tool-versions or defaults if not specified)
+      r-version: '4.4.0'
+      bioc-version: '3.20'
+      python-version: '3.11'
+      node-version: '20'
+      go-version: '1.21.5'
+      ruby-version: '3.2'
+      rust-version: 'stable'
+      
       # Optional: Override other defaults as needed
       # dockerfile-path: '.'
       # context: '.'
