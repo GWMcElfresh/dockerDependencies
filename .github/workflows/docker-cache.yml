@@ -233,6 +233,7 @@ jobs:
               --target deps \
               --file "${{ inputs.dockerfile-path }}/Dockerfile" \
               --build-arg BASE_IMAGE=${{ steps.pull-base.outputs.base-image }} \
+              --build-arg SKIP_BASE_DEPS=true \
               $BUILD_ARGS \
               --cache-from ${{ steps.pull-base.outputs.base-image }} \
               -t "${{ steps.pull-deps.outputs.deps-image }}" \
