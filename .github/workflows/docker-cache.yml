@@ -78,6 +78,11 @@ on:
         required: false
         type: string
         default: 'stable'
+      push-images:
+        description: 'Push dependency and runtime images to GHCR'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build-and-test:
@@ -243,7 +248,7 @@ jobs:
           fi
       
       - name: Push dependency image to GHCR
-        if: steps.pull-deps.outputs.exists == 'false'
+        if: steps.pull-deps.outputs.exists == 'false' && inputs.push-images
         run: |
           echo "⬆️ Pushing dependency image to GHCR..."
           docker push "${{ steps.pull-deps.outputs.deps-image }}"
@@ -256,6 +261,15 @@ jobs:
             --file "${{ inputs.dockerfile-path }}/Dockerfile" \
             -t "${{ inputs.runtime-image-name }}" \
             "${{ inputs.context }}"
+      
+      - name: Tag and push runtime image to GHCR
+        if: inputs.push-images && github.ref == 'refs/heads/main'
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          RUNTIME_IMAGE="ghcr.io/${REPO_LOWER}:latest"
+          docker tag "${{ inputs.runtime-image-name }}" "${RUNTIME_IMAGE}"
+          docker push "${RUNTIME_IMAGE}"
+          echo "✅ Runtime image pushed: ${RUNTIME_IMAGE}"
       
       - name: Run tests
         run: |
