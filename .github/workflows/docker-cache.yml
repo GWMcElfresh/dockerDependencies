@@ -83,6 +83,11 @@ on:
         required: false
         type: boolean
         default: true
+      push-runtime:
+        description: 'Push runtime image to GHCR as :latest (only when push-images is true and on main/master branch)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-and-test:
@@ -257,15 +262,18 @@ jobs:
       - name: Build runtime image
         run: |
           echo "🔨 Building runtime image..."
+          # Use the deps image as cache to speed up runtime build
           docker build \
             --build-arg DEPS_TAG=${{ steps.cache-key.outputs.cache-key }} \
+            --cache-from ${{ steps.pull-deps.outputs.deps-image }} \
             --file "${{ inputs.dockerfile-path }}/Dockerfile" \
             -t "${{ inputs.runtime-image-name }}" \
             "${{ inputs.context }}"
       
       - name: Tag and push runtime image to GHCR
-        if: inputs.push-images && github.ref == 'refs/heads/main'
+        if: inputs.push-runtime && inputs.push-images && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         run: |
+          echo "⬆️ Pushing runtime image to GHCR..."
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           RUNTIME_IMAGE="ghcr.io/${REPO_LOWER}:latest"
           docker tag "${{ inputs.runtime-image-name }}" "${RUNTIME_IMAGE}"
