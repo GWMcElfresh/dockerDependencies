@@ -298,10 +298,19 @@ jobs:
           # Determine which image to use for testing
           if docker image inspect "${{ inputs.runtime-image-name }}" >/dev/null 2>&1; then
             TEST_IMAGE="${{ inputs.runtime-image-name }}"
+            USING_RUNTIME=true
             echo "✅ Using runtime image for tests: ${TEST_IMAGE}"
           else
             TEST_IMAGE="${{ steps.pull-deps.outputs.deps-image }}"
+            USING_RUNTIME=false
             echo "⚡ Runtime image not built - using deps image for tests: ${TEST_IMAGE}"
           fi
           
-          docker run --rm "${TEST_IMAGE}" sh -c '${{ inputs.test-command }}'
+          # When using deps image, mount the code since it's not in the image
+          # When using runtime image, code is already baked in
+          if [ "$USING_RUNTIME" = "false" ]; then
+            echo "📦 Mounting workspace into container..."
+            docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace "${TEST_IMAGE}" sh -c '${{ inputs.test-command }}'
+          else
+            docker run --rm "${TEST_IMAGE}" sh -c '${{ inputs.test-command }}'
+          fi
