@@ -265,12 +265,9 @@ jobs:
           docker push "${{ steps.pull-deps.outputs.deps-image }}"
       
       - name: Build runtime image
-        # Only build runtime if: (1) not explicitly skipped, AND (2) we're pushing it OR need full runtime for tests
-        # Note: When skipped, tests will run on deps image instead
-        if: |
-          !inputs.skip-runtime && (
-            inputs.push-runtime || inputs.test-command != 'echo "No tests specified"'
-          )
+        # Only build runtime if: (1) not explicitly skipped, AND (2) we're pushing it
+        # Note: Tests will run on deps image when runtime is not built
+        if: inputs.push-runtime && !inputs.skip-runtime
         run: |
           echo "🔨 Building runtime image..."
           # Use the deps image as cache to speed up runtime build
