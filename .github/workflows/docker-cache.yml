@@ -310,7 +310,7 @@ jobs:
           # When using runtime image, code is already baked in
           if [ "$USING_RUNTIME" = "false" ]; then
             echo "📦 Mounting workspace into container..."
-            docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace "${TEST_IMAGE}" sh -c '${{ inputs.test-command }}'
+            docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace "${TEST_IMAGE}" bash -c '${{ inputs.test-command }}'
           else
-            docker run --rm "${TEST_IMAGE}" sh -c '${{ inputs.test-command }}'
+            docker run --rm "${TEST_IMAGE}" bash -c '${{ inputs.test-command }}'
           fi
