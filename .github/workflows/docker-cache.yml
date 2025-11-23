@@ -88,6 +88,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip-runtime:
+        description: 'Skip building runtime image entirely (overrides push-runtime and test-command)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-and-test:
@@ -260,6 +265,12 @@ jobs:
           docker push "${{ steps.pull-deps.outputs.deps-image }}"
       
       - name: Build runtime image
+        # Only build runtime if: (1) not explicitly skipped, AND (2) we're pushing it OR need full runtime for tests
+        # Note: When skipped, tests will run on deps image instead
+        if: |
+          !inputs.skip-runtime && (
+            inputs.push-runtime || inputs.test-command != 'echo "No tests specified"'
+          )
         run: |
           echo "🔨 Building runtime image..."
           # Use the deps image as cache to speed up runtime build
@@ -281,6 +292,19 @@ jobs:
           echo "✅ Runtime image pushed: ${RUNTIME_IMAGE}"
       
       - name: Run tests
+        # Run tests if custom test-command is provided
+        # Uses runtime image if available, otherwise falls back to deps image
+        if: inputs.test-command != 'echo "No tests specified"'
         run: |
           echo "🧪 Running tests..."
-          docker run --rm "${{ inputs.runtime-image-name }}" ${{ inputs.test-command }}
+          
+          # Determine which image to use for testing
+          if docker image inspect "${{ inputs.runtime-image-name }}" >/dev/null 2>&1; then
+            TEST_IMAGE="${{ inputs.runtime-image-name }}"
+            echo "✅ Using runtime image for tests: ${TEST_IMAGE}"
+          else
+            TEST_IMAGE="${{ steps.pull-deps.outputs.deps-image }}"
+            echo "⚡ Runtime image not built - using deps image for tests: ${TEST_IMAGE}"
+          fi
+          
+          docker run --rm "${TEST_IMAGE}" ${{ inputs.test-command }}
