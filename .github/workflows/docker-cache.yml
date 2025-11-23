@@ -304,4 +304,4 @@ jobs:
             echo "⚡ Runtime image not built - using deps image for tests: ${TEST_IMAGE}"
           fi
           
-          docker run --rm "${TEST_IMAGE}" ${{ inputs.test-command }}
+          docker run --rm "${TEST_IMAGE}" sh -c '${{ inputs.test-command }}'
