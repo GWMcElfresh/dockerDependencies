@@ -293,6 +293,7 @@ jobs:
         # Run tests if custom test-command is provided
         # Uses runtime image if available, otherwise falls back to deps image
         if: inputs.test-command != 'echo "No tests specified"'
+        shell: bash
         run: |
           echo "🧪 Running tests..."
           
