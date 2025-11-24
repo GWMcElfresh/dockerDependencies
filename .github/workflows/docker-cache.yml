@@ -169,6 +169,12 @@ jobs:
               DEPS_SHA="${DEPS_SHA}${FILE_HASH}"
             fi
           done
+
+          # Include language/version inputs in the hash to avoid tag collisions across PRs
+          # This ensures different R/Python/Bioc/etc versions produce distinct deps images
+          VERSION_STR="R=${{ inputs.r-version }};BIOC=${{ inputs.bioc-version }};PY=${{ inputs.python-version }};NODE=${{ inputs.node-version }};GO=${{ inputs.go-version }};RUBY=${{ inputs.ruby-version }};RUST=${{ inputs.rust-version }}"
+          VERSION_HASH=$(echo -n "$VERSION_STR" | sha256sum | cut -d' ' -f1)
+          DEPS_SHA="${DEPS_SHA}${VERSION_HASH}"
           
           # If no dependency files found, use a default hash
           if [ -z "$DEPS_SHA" ]; then
