@@ -270,10 +270,11 @@ jobs:
         if: inputs.push-runtime && !inputs.skip-runtime
         run: |
           echo "🔨 Building runtime image..."
-          # Use the deps image as cache to speed up runtime build
+          # Use the deps image directly as the base (skips rebuilding base and deps stages)
+          # This dramatically speeds up runtime builds
           docker build \
-            --build-arg DEPS_TAG=${{ steps.cache-key.outputs.cache-key }} \
-            --cache-from ${{ steps.pull-deps.outputs.deps-image }} \
+            --build-arg DEPS_IMAGE=${{ steps.pull-deps.outputs.deps-image }} \
+            --target runtime \
             --file "${{ inputs.dockerfile-path }}/Dockerfile" \
             -t "${{ inputs.runtime-image-name }}" \
             "${{ inputs.context }}"
