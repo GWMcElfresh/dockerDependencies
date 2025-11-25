@@ -101,6 +101,9 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      packages: write
     
     steps:
       - name: Checkout code
@@ -198,53 +201,40 @@ jobs:
           echo "Time bucket: ${TIME_BUCKET}"
           echo "Cache key: ${CACHE_KEY}"
       
-      - name: Pull existing dependency image if available
+      - name: Check for cached dependency image
         id: pull-deps
         run: |
           REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           DEPS_IMAGE="ghcr.io/${REPO_LOWER}/deps:${{ steps.cache-key.outputs.cache-key }}"
           echo "deps-image=${DEPS_IMAGE}" >> $GITHUB_OUTPUT
-          
+
+          echo "🔎 Looking for cached dependency image: ${DEPS_IMAGE}"          
           if docker pull "${DEPS_IMAGE}" 2>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Dependency image found in cache: ${DEPS_IMAGE}"
+            echo "✅ Reusing cached dependency image (will skip dependency rebuild)"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "❌ Dependency image not found in cache: ${DEPS_IMAGE}"
+            echo "🆕 No suitable dependency image found; a fresh dependency build is required"
           fi
       
-      - name: Build dependency image
+      - name: Build dependency image (fresh)
         if: steps.pull-deps.outputs.exists == 'false'
         run: |
-          echo "🔨 Building dependency image..."
-          
+          echo "🔨 Starting fresh dependency build (cache miss)"
+
           # Prepare build args for language versions
           BUILD_ARGS=""
-          if [ -n "${{ inputs.r-version }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --build-arg R_VERSION=${{ inputs.r-version }}"
-          fi
-          if [ -n "${{ inputs.bioc-version }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --build-arg BIOC_VERSION=${{ inputs.bioc-version }}"
-          fi
-          if [ -n "${{ inputs.python-version }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --build-arg PYTHON_VERSION=${{ inputs.python-version }}"
-          fi
-          if [ -n "${{ inputs.node-version }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --build-arg NODE_VERSION=${{ inputs.node-version }}"
-          fi
-          if [ -n "${{ inputs.go-version }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --build-arg GO_VERSION=${{ inputs.go-version }}"
-          fi
-          if [ -n "${{ inputs.ruby-version }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --build-arg RUBY_VERSION=${{ inputs.ruby-version }}"
-          fi
-          if [ -n "${{ inputs.rust-version }}" ]; then
-            BUILD_ARGS="$BUILD_ARGS --build-arg RUST_VERSION=${{ inputs.rust-version }}"
-          fi
-          
+          if [ -n "${{ inputs.r-version }}" ]; then BUILD_ARGS="$BUILD_ARGS --build-arg R_VERSION=${{ inputs.r-version }}"; fi
+          if [ -n "${{ inputs.bioc-version }}" ]; then BUILD_ARGS="$BUILD_ARGS --build-arg BIOC_VERSION=${{ inputs.bioc-version }}"; fi
+          if [ -n "${{ inputs.python-version }}" ]; then BUILD_ARGS="$BUILD_ARGS --build-arg PYTHON_VERSION=${{ inputs.python-version }}"; fi
+          if [ -n "${{ inputs.node-version }}" ]; then BUILD_ARGS="$BUILD_ARGS --build-arg NODE_VERSION=${{ inputs.node-version }}"; fi
+          if [ -n "${{ inputs.go-version }}" ]; then BUILD_ARGS="$BUILD_ARGS --build-arg GO_VERSION=${{ inputs.go-version }}"; fi
+          if [ -n "${{ inputs.ruby-version }}" ]; then BUILD_ARGS="$BUILD_ARGS --build-arg RUBY_VERSION=${{ inputs.ruby-version }}"; fi
+          if [ -n "${{ inputs.rust-version }}" ]; then BUILD_ARGS="$BUILD_ARGS --build-arg RUST_VERSION=${{ inputs.rust-version }}"; fi
+
           # If we have a base image, use it to speed up the build
           if [ "${{ inputs.use-base-image }}" == "true" ] && [ "${{ steps.pull-base.outputs.exists }}" == "true" ]; then
-            echo "📦 Using base image: ${{ steps.pull-base.outputs.base-image }}"
+            echo "📦 Leveraging monthly base image for faster dependency layer: ${{ steps.pull-base.outputs.base-image }}"
             docker build \
               --target deps \
               --file "${{ inputs.dockerfile-path }}/Dockerfile" \
@@ -255,13 +245,27 @@ jobs:
               -t "${{ steps.pull-deps.outputs.deps-image }}" \
               "${{ inputs.context }}"
           else
-            echo "🏗️  Building from scratch (no base image)"
+            echo "🏗️  Full dependency build without base acceleration"
             docker build \
               --target deps \
               --file "${{ inputs.dockerfile-path }}/Dockerfile" \
               $BUILD_ARGS \
               -t "${{ steps.pull-deps.outputs.deps-image }}" \
               "${{ inputs.context }}"
+          fi
+          echo "✅ Fresh dependency image built: ${{ steps.pull-deps.outputs.deps-image }}"
+
+      - name: Finalize dependency layer selection
+        id: finalize-deps
+        run: |
+          if [ "${{ steps.pull-deps.outputs.exists }}" = "true" ]; then
+            echo "fresh-build=false" >> $GITHUB_OUTPUT
+            echo "final-deps-image=${{ steps.pull-deps.outputs.deps-image }}" >> $GITHUB_OUTPUT
+            echo "📌 Dependency layer status: reused cached image"
+          else
+            echo "fresh-build=true" >> $GITHUB_OUTPUT
+            echo "final-deps-image=${{ steps.pull-deps.outputs.deps-image }}" >> $GITHUB_OUTPUT
+            echo "📌 Dependency layer status: freshly built image"
           fi
       
       - name: Push dependency image to GHCR
@@ -275,15 +279,19 @@ jobs:
         # Note: Tests will run on deps image when runtime is not built
         if: inputs.push-runtime && !inputs.skip-runtime
         run: |
+          if [ "${{ steps.finalize-deps.outputs.fresh-build }}" = "true" ]; then
+            echo "🚀 Runtime build will use freshly built dependency image: ${{ steps.finalize-deps.outputs.final-deps-image }}"
+          else
+            echo "🚀 Runtime build will reuse cached dependency image: ${{ steps.finalize-deps.outputs.final-deps-image }}"
+          fi
           echo "🔨 Building runtime image..."
-          # Use the deps image directly as the base (skips rebuilding base and deps stages)
-          # This dramatically speeds up runtime builds
           docker build \
-            --build-arg DEPS_IMAGE=${{ steps.pull-deps.outputs.deps-image }} \
+            --build-arg DEPS_IMAGE=${{ steps.finalize-deps.outputs.final-deps-image }} \
             --target runtime \
             --file "${{ inputs.dockerfile-path }}/Dockerfile" \
             -t "${{ inputs.runtime-image-name }}" \
             "${{ inputs.context }}"
+          echo "✅ Runtime image built: ${{ inputs.runtime-image-name }}"
       
       - name: Tag and push runtime image to GHCR
         if: inputs.push-runtime && inputs.push-images && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -307,18 +315,17 @@ jobs:
           if docker image inspect "${{ inputs.runtime-image-name }}" >/dev/null 2>&1; then
             TEST_IMAGE="${{ inputs.runtime-image-name }}"
             USING_RUNTIME=true
-            echo "✅ Using runtime image for tests: ${TEST_IMAGE}"
+            echo "✅ Tests will run against runtime image: ${TEST_IMAGE}"
           else
-            TEST_IMAGE="${{ steps.pull-deps.outputs.deps-image }}"
+            TEST_IMAGE="${{ steps.finalize-deps.outputs.final-deps-image }}"
             USING_RUNTIME=false
-            echo "⚡ Runtime image not built - using deps image for tests: ${TEST_IMAGE}"
+            echo "⚡ Runtime image not built - tests will use dependency image: ${TEST_IMAGE}"
           fi
-          
-          # When using deps image, mount the code since it's not in the image
-          # When using runtime image, code is already baked in
+
           if [ "$USING_RUNTIME" = "false" ]; then
-            echo "📦 Mounting workspace into container..."
+            echo "📦 Mounting workspace into container (code not baked into deps image)"
             docker run --rm -v "${{ github.workspace }}:/workspace" -w /workspace "${TEST_IMAGE}" bash -c '${{ inputs.test-command }}'
           else
             docker run --rm "${TEST_IMAGE}" bash -c '${{ inputs.test-command }}'
           fi
+          echo "✅ Test phase completed"
