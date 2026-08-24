@@ -10,4 +10,4 @@ pyyaml==6.0.1
 # Week calculation: date +%V gives ISO week number
 # Uncomment the line below on odd weeks (1, 3, 5, etc.)
 # Comment it out on even weeks (2, 4, 6, etc.)
-# python-dateutil==2.8.2
+python-dateutil==2.8.2
